@@ -1,0 +1,57 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { createAuthRouter } from './modules/auth';
+import { createPublicRouter } from './modules/public';
+import { createAdminRouter } from './modules/admin';
+import { createWebhookRouter } from './modules/webhooks';
+import { buildErrorResponse } from './lib/errors';
+import type { AppEnv } from './env';
+
+const app = new Hono<AppEnv>();
+
+// CORS — restrict to configured origins, allow credentials for cookie auth.
+app.use(
+  '*',
+  cors({
+    origin: (origin, c) => {
+      const allowed = (c.env.ALLOWED_PUBLIC_API_ORIGINS ?? 'http://localhost:5173')
+        .split(',')
+        .map((o: string) => o.trim());
+      if (origin && allowed.includes(origin)) return origin;
+      if (origin && c.env.ENVIRONMENT !== 'production' && origin.includes('localhost')) return origin;
+      return null;
+    },
+    credentials: true,
+    allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  }),
+);
+
+// Security headers.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (c.env.ENVIRONMENT === 'production') {
+    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+});
+
+// Centralized error handling.
+app.onError((err, c) => {
+  console.error('Request error:', err);
+  const { status, response } = buildErrorResponse(err);
+  return c.json(response, status as 400 | 401 | 403 | 404 | 409 | 500);
+});
+
+// Health check.
+app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// Route modules.
+app.route('/auth', createAuthRouter());
+app.route('/public', createPublicRouter());
+app.route('/', createAdminRouter());
+app.route('/webhooks', createWebhookRouter());
+
+export default { fetch: app.fetch };

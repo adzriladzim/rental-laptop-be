@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+seed.sql
+migrations/*.sql
+!migrations/meta/

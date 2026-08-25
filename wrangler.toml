@@ -1,0 +1,22 @@
+name = "laptop-rental-api"
+main = "./src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+upload_source_maps = true
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "laptop-rental-db"
+database_id = "6c61c659-8529-4f10-9b5e-ae64aa0a38b0"
+
+# Environment Variables (non-secret). Secrets via: npx wrangler secret put <NAME>
+[vars]
+ENVIRONMENT = "production"
+PUBLIC_API_KEY = "lpr_public_dev_key"
+PUBLIC_API_ENABLED = "true"
+BUSINESS_NAME = "SewaTop — Sewa Laptop Jakarta"
+BUSINESS_PHONE = "+6288292123852"
+BUSINESS_EMAIL = "halo@sewalaptop.id"
+BUSINESS_ADDRESS = "Jakarta, Indonesia"
+ALLOWED_PUBLIC_API_ORIGINS = "http://localhost:5173,http://localhost:3000,https://rental-laptop-lp.vercel.app"

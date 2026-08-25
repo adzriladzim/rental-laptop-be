@@ -1,0 +1,29 @@
+{
+  "name": "laptop-rental-backend",
+  "description": "Laptop Rental System API - Cloudflare Workers + Hono + D1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "wrangler d1 migrations apply laptop-rental-db --local",
+    "db:seed": "tsx src/db/seed.ts && wrangler d1 execute laptop-rental-db --local --file=./seed.sql",
+    "cf:typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@tsndr/cloudflare-worker-jwt": "^3.1.0",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.11.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260823.1",
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.68.0"
+  }
+}

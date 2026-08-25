@@ -46,6 +46,13 @@ export class ConflictError extends AppError {
   }
 }
 
+export class BlacklistedError extends AppError {
+  constructor(message: string) {
+    super(message, 403, 'BLACKLISTED');
+    this.name = 'BlacklistedError';
+  }
+}
+
 export interface ApiError {
   success: false;
   message: string;

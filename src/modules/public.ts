@@ -5,60 +5,9 @@ import { createDb } from '../db';
 import { laptops, customers, bookings, leads, systemConfig } from '../db/schema';
 import { apiKeyMiddleware } from '../lib/middleware';
 import { validateBody, getBody, validateQuery, getQuery } from '../lib/validate';
-import { NotFoundError, ConflictError, ValidationError } from '../lib/errors';
+import { NotFoundError, ConflictError, ValidationError, BlacklistedError } from '../lib/errors';
+import { daysBetween, calcTotal, conflictingLaptopIds, generateBookingNumber } from '../lib/booking';
 import type { AppEnv } from '../env';
-
-const ACTIVE_BOOKING_STATUSES = ['Pending', 'pending_payment', 'Confirmed', 'Active'];
-
-function daysBetween(start: string, end: string): number {
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
-  if (Number.isNaN(s) || Number.isNaN(e) || e < s) return 0;
-  return Math.max(1, Math.ceil((e - s) / 86_400_000));
-}
-
-// Real pricelist (uniform all units, from @sewaintop):
-// 175k/day (1-2d) · 160k/day (3-6d) · weekly 875k => 125k/day (7-29d) · monthly 2400k => 80k/day (30d+)
-const THREE_PLUS_DAY_RATE = 160_000;
-
-function calcTotal(
-  days: number,
-  daily?: number | null,
-  weekly?: number | null,
-  monthly?: number | null,
-): number {
-  if (monthly && days >= 30) return Math.round((monthly / 30) * days);
-  if (weekly && days >= 7) return Math.round((weekly / 7) * days);
-  if (days >= 3) return days * THREE_PLUS_DAY_RATE;
-  return (daily ?? 0) * days;
-}
-
-async function conflictingLaptopIds(
-  db: ReturnType<typeof createDb>,
-  start: string,
-  end: string,
-): Promise<string[]> {
-  const statusIn = `('${ACTIVE_BOOKING_STATUSES.join("', '")}')`;
-  const rows = await db
-    .select({ laptopId: bookings.laptopId })
-    .from(bookings)
-    .where(
-      and(
-        sql`${bookings.status} IN ${sql.raw(statusIn)}`,
-        sql`${bookings.startDate} < ${end} AND ${bookings.endDate} > ${start}`,
-      ),
-    );
-  return rows.map((r) => r.laptopId);
-}
-
-async function generateBookingNumber(db: ReturnType<typeof createDb>): Promise<string> {
-  const year = new Date().getFullYear();
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(bookings)
-    .where(sql`${bookings.bookingNumber} LIKE ${`LPR-${year}-%`}`);
-  return `LPR-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
-}
 
 async function getConfigValue(db: ReturnType<typeof createDb>, key: string, fallback: string) {
   const row = await db.select({ value: systemConfig.value }).from(systemConfig).where(eq(systemConfig.key, key)).limit(1);
@@ -202,6 +151,15 @@ export function createPublicRouter(): Hono<AppEnv> {
     if (new Date(body.endDate) < new Date(body.startDate)) {
       throw new ValidationError('endDate must be after startDate');
     }
+
+    // B5: resolve customer by phone FIRST — blacklisted existing customers are rejected
+    // before any booking/conflict work. New (not-found) customers proceed normally.
+    const customerRows = await db.select().from(customers).where(eq(customers.phone, body.customerPhone)).limit(1);
+    const foundCustomer = customerRows[0];
+    if (foundCustomer?.isBlacklisted) {
+      throw new BlacklistedError('Maaf, Anda tidak dapat melakukan booking. Hubungi kami untuk informasi.');
+    }
+
     const conflicts = await conflictingLaptopIds(db, body.startDate, body.endDate);
     if (conflicts.includes(laptop.id)) throw new ConflictError('Laptop already booked for the selected dates');
 
@@ -211,7 +169,7 @@ export function createPublicRouter(): Hono<AppEnv> {
 
     // NOTE: D1 does not support db.transaction() (BEGIN TRANSACTION rejected).
     // Sequential operations instead — acceptable for single-outlet rental scale.
-    let customer = (await db.select().from(customers).where(eq(customers.phone, body.customerPhone)).limit(1))[0];
+    let customer = foundCustomer;
     if (!customer) {
       const cid = crypto.randomUUID();
       await db.insert(customers).values({

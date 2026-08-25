@@ -8,6 +8,7 @@ import { createPartnersRouter } from './partners';
 import { createPaymentsRouter } from './payments';
 import { createMaintenanceRouter } from './maintenance';
 import { createDashboardRouter } from './dashboard';
+import { createChecklistsRouter } from './checklists';
 import type { AppEnv } from '../../env';
 
 export function createAdminRouter(): Hono<AppEnv> {
@@ -24,6 +25,7 @@ export function createAdminRouter(): Hono<AppEnv> {
   router.route('/payments', createPaymentsRouter());
   router.route('/maintenance', createMaintenanceRouter());
   router.route('/dashboard', createDashboardRouter());
+  router.route('/checklists', createChecklistsRouter());
 
   return router;
 }

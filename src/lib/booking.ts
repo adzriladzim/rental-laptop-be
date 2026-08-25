@@ -1,8 +1,8 @@
 import { sql, and } from 'drizzle-orm';
 import { createDb } from '../db';
-import { bookings, maintenanceRecords } from '../db/schema';
+import { bookings, maintenanceRecords, laptops } from '../db/schema';
 
-const ACTIVE_BOOKING_STATUSES = ['Pending', 'pending_payment', 'Confirmed', 'Active'];
+export const ACTIVE_BOOKING_STATUSES = ['Pending', 'pending_payment', 'Confirmed', 'Active'];
 
 export function daysBetween(start: string, end: string): number {
   const s = new Date(start).getTime();
@@ -60,24 +60,45 @@ export async function maintenanceBlockedLaptopIds(
   return [...blocked];
 }
 
-export async function conflictingLaptopIds(
+// Count overlapping ACTIVE bookings per laptop for a date range [start, end).
+export async function overlapCounts(
   db: ReturnType<typeof createDb>,
   start: string,
   end: string,
-): Promise<string[]> {
+): Promise<Map<string, number>> {
   const statusIn = `('${ACTIVE_BOOKING_STATUSES.join("', '")}')`;
   const rows = await db
-    .select({ laptopId: bookings.laptopId })
+    .select({ laptopId: bookings.laptopId, count: sql<number>`count(*)` })
     .from(bookings)
     .where(
       and(
         sql`${bookings.status} IN ${sql.raw(statusIn)}`,
         sql`${bookings.startDate} < ${end} AND ${bookings.endDate} > ${start}`,
       ),
-    );
-  const bookingConflicts = rows.map((r) => r.laptopId);
+    )
+    .groupBy(bookings.laptopId);
+  return new Map(rows.map((r) => [r.laptopId, Number(r.count)]));
+}
+
+// Laptops that are FULLY booked (overlap count >= quantity) OR maintenance-blocked.
+export async function unavailableLaptopIds(
+  db: ReturnType<typeof createDb>,
+  start: string,
+  end: string,
+): Promise<string[]> {
+  const counts = await overlapCounts(db, start, end);
+  const laptopRows = await db
+    .select({ id: laptops.id, quantity: laptops.quantity })
+    .from(laptops);
+  const qtyMap = new Map(laptopRows.map((l) => [l.id, l.quantity ?? 1]));
+  const unavailable = new Set<string>();
+  for (const [laptopId, count] of counts) {
+    const qty = qtyMap.get(laptopId) ?? 1;
+    if (count >= qty) unavailable.add(laptopId);
+  }
   const maintenance = await maintenanceBlockedLaptopIds(db, start, end);
-  return [...new Set([...bookingConflicts, ...maintenance])];
+  for (const m of maintenance) unavailable.add(m);
+  return [...unavailable];
 }
 
 export async function generateBookingNumber(db: ReturnType<typeof createDb>): Promise<string> {

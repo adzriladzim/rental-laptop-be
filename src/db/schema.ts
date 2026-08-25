@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Laptops
 export const laptops = sqliteTable('laptops', {
@@ -16,6 +16,7 @@ export const laptops = sqliteTable('laptops', {
   photoUrl: text('photo_url'),
   description: text('description'),
   partnerId: text('partner_id').references(() => partners.id),
+  quantity: integer('quantity').notNull().default(1),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (t) => ({
@@ -142,6 +143,21 @@ export const maintenanceRecords = sqliteTable('maintenance_records', {
   statusIdx: index('maintenance_status_idx').on(t.status),
 }));
 
+// Laptop handover checklists (digital serah terima)
+export const laptopChecklists = sqliteTable('laptop_checklists', {
+  id: text('id').primaryKey(),
+  bookingId: text('booking_id').notNull().references(() => bookings.id),
+  type: text('type', { enum: ['pickup', 'return'] }).notNull(),
+  checklistData: text('checklist_data').notNull(), // JSON string
+  damageFee: real('damage_fee').default(0),
+  performedBy: text('performed_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (t) => ({
+  bookingIdx: index('checklists_booking_idx').on(t.bookingId),
+  typeIdx: index('checklists_type_idx').on(t.type),
+  bookingTypeUnique: uniqueIndex('checklists_booking_type_unique').on(t.bookingId, t.type),
+}));
+
 // Users
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -186,6 +202,8 @@ export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
 export type NewMaintenanceRecord = typeof maintenanceRecords.$inferInsert;
+export type LaptopChecklist = typeof laptopChecklists.$inferSelect;
+export type NewLaptopChecklist = typeof laptopChecklists.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type TokenBlacklistEntry = typeof tokenBlacklist.$inferSelect;

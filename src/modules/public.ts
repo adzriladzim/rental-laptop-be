@@ -6,7 +6,7 @@ import { laptops, customers, bookings, leads, systemConfig } from '../db/schema'
 import { apiKeyMiddleware } from '../lib/middleware';
 import { validateBody, getBody, validateQuery, getQuery } from '../lib/validate';
 import { NotFoundError, ConflictError, ValidationError, BlacklistedError } from '../lib/errors';
-import { daysBetween, calcTotal, conflictingLaptopIds, generateBookingNumber } from '../lib/booking';
+import { daysBetween, calcTotal, unavailableLaptopIds, overlapCounts, generateBookingNumber } from '../lib/booking';
 import type { AppEnv } from '../env';
 
 async function getConfigValue(db: ReturnType<typeof createDb>, key: string, fallback: string) {
@@ -107,12 +107,17 @@ export function createPublicRouter(): Hono<AppEnv> {
       throw new ValidationError('endDate must be after startDate');
     }
     const db = createDb(c.env.DB);
-    const conflicts = await conflictingLaptopIds(db, startDate, endDate);
+    const unavailable = await unavailableLaptopIds(db, startDate, endDate);
+    const counts = await overlapCounts(db, startDate, endDate);
     const conditions = [eq(laptops.status, 'Available')];
     if (category) conditions.push(eq(laptops.category, category));
-    if (conflicts.length) conditions.push(sql`${laptops.id} NOT IN ${conflicts}`);
+    if (unavailable.length) conditions.push(sql`${laptops.id} NOT IN ${unavailable}`);
     const rows = await db.select().from(laptops).where(and(...conditions));
-    return c.json({ data: rows });
+    const data = rows.map((l) => ({
+      ...l,
+      remainingUnits: (l.quantity ?? 1) - (counts.get(l.id) ?? 0),
+    }));
+    return c.json({ data });
   });
 
   // GET /public/laptops
@@ -160,7 +165,7 @@ export function createPublicRouter(): Hono<AppEnv> {
       throw new BlacklistedError('Maaf, Anda tidak dapat melakukan booking. Hubungi kami untuk informasi.');
     }
 
-    const conflicts = await conflictingLaptopIds(db, body.startDate, body.endDate);
+    const conflicts = await unavailableLaptopIds(db, body.startDate, body.endDate);
     if (conflicts.includes(laptop.id)) throw new ConflictError('Laptop already booked for the selected dates');
 
     const days = daysBetween(body.startDate, body.endDate);
@@ -197,6 +202,8 @@ export function createPublicRouter(): Hono<AppEnv> {
     });
     const booking = (await db.select().from(bookings).where(eq(bookings.id, bid)).limit(1))[0];
     const result = { booking, customer };
+    const counts = await overlapCounts(db, body.startDate, body.endDate);
+    const remainingUnits = (laptop.quantity ?? 1) - (counts.get(laptop.id) ?? 0);
 
     return c.json(
       {
@@ -208,6 +215,7 @@ export function createPublicRouter(): Hono<AppEnv> {
           snapToken: result.booking.snapToken,
           startDate: result.booking.startDate,
           endDate: result.booking.endDate,
+          remainingUnits,
           laptop: { id: laptop.id, name: laptop.name, slug: laptop.slug },
         },
       },

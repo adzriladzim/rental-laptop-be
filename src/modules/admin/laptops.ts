@@ -26,6 +26,7 @@ const createSchema = z.object({
   weeklyRate: z.number().positive().optional().nullable(),
   monthlyRate: z.number().positive().optional().nullable(),
   status: z.enum(['Available', 'Rented', 'Maintenance', 'Inactive']).optional(),
+  quantity: z.number().int().min(1).optional().default(1),
   slug: z.string().optional(),
   photoUrl: z.string().optional().nullable(),
   description: z.string().optional().nullable(),

@@ -6,7 +6,7 @@ import { bookings, laptops, customers } from '../../db/schema';
 import { validateBody, getBody } from '../../lib/validate';
 import { NotFoundError, ConflictError, ValidationError, BlacklistedError } from '../../lib/errors';
 import { parsePagination, listResponse } from '../../lib/pagination';
-import { daysBetween, calcTotal, conflictingLaptopIds, generateBookingNumber } from '../../lib/booking';
+import { daysBetween, calcTotal, unavailableLaptopIds, overlapCounts, ACTIVE_BOOKING_STATUSES, generateBookingNumber } from '../../lib/booking';
 import type { AppEnv } from '../../env';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -33,8 +33,23 @@ const updateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-async function setLaptopStatus(db: ReturnType<typeof createDb>, laptopId: string, status: string) {
-  await db.update(laptops).set({ status: status as never, updatedAt: new Date().toISOString() }).where(eq(laptops.id, laptopId));
+// Recompute a laptop's availability status from its active-booking count vs quantity.
+// Only overrides 'Available'/'Rented'; leaves manual 'Maintenance'/'Inactive' untouched.
+async function recomputeLaptopStatus(db: ReturnType<typeof createDb>, laptopId: string) {
+  const [laptop] = await db
+    .select({ quantity: laptops.quantity, status: laptops.status })
+    .from(laptops)
+    .where(eq(laptops.id, laptopId))
+    .limit(1);
+  if (!laptop) return;
+  if (laptop.status === 'Maintenance' || laptop.status === 'Inactive') return;
+  const statusIn = `('${ACTIVE_BOOKING_STATUSES.join("', '")}')`;
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(bookings)
+    .where(and(eq(bookings.laptopId, laptopId), sql`${bookings.status} IN ${sql.raw(statusIn)}`));
+  const next = (count ?? 0) >= (laptop.quantity ?? 1) ? 'Rented' : 'Available';
+  await db.update(laptops).set({ status: next as never, updatedAt: new Date().toISOString() }).where(eq(laptops.id, laptopId));
 }
 
 function bookingsListWhere(c: Context<AppEnv>) {
@@ -122,7 +137,7 @@ export function createBookingsRouter(): Hono<AppEnv> {
     }
 
     // Conflict check (booking + maintenance auto-block).
-    const conflicts = await conflictingLaptopIds(db, body.startDate, body.endDate);
+    const conflicts = await unavailableLaptopIds(db, body.startDate, body.endDate);
     if (conflicts.includes(laptop.id)) {
       throw new ConflictError('Laptop is unavailable for the selected dates (booking or maintenance conflict)');
     }
@@ -145,7 +160,9 @@ export function createBookingsRouter(): Hono<AppEnv> {
       notes: body.notes ?? null,
     });
     const booking = (await db.select().from(bookings).where(eq(bookings.id, bid)).limit(1))[0];
-    return c.json({ data: booking }, 201);
+    const counts = await overlapCounts(db, body.startDate, body.endDate);
+    const remainingUnits = (laptop.quantity ?? 1) - (counts.get(laptop.id) ?? 0);
+    return c.json({ data: { ...booking, remainingUnits } }, 201);
   });
 
   router.put('/:id', validateBody(updateSchema), async (c) => {
@@ -180,13 +197,13 @@ export function createBookingsRouter(): Hono<AppEnv> {
       const patch: Record<string, unknown> = { status: target, updatedAt: new Date().toISOString() };
       if (action === 'complete') {
         patch.actualReturnDate = new Date().toISOString();
-        if (booking.laptopId) await setLaptopStatus(db, booking.laptopId, 'Available');
+        if (booking.laptopId) await recomputeLaptopStatus(db, booking.laptopId);
       }
       if (action === 'cancel') {
-        if (booking.laptopId) await setLaptopStatus(db, booking.laptopId, 'Available');
+        if (booking.laptopId) await recomputeLaptopStatus(db, booking.laptopId);
       }
       if (action === 'start') {
-        if (booking.laptopId) await setLaptopStatus(db, booking.laptopId, 'Rented');
+        if (booking.laptopId) await recomputeLaptopStatus(db, booking.laptopId);
       }
 
       await db.update(bookings).set(patch).where(eq(bookings.id, id));

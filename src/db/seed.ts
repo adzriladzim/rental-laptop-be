@@ -63,7 +63,7 @@ function buildData(): SeedData {
   } as Record<string, unknown>));
 
   const users = [
-    { id: 'usr-001', name: 'Admin SewaLaptop', email: 'admin@sewalaptop.id', password: 'admin123', role: 'SUPER_ADMIN', isActive: true },
+    { id: 'usr-001', name: 'SewaTop Admin', email: 'sewaintop', password: 'admin123', role: 'SUPER_ADMIN', isActive: true },
     { id: 'usr-002', name: 'Staff Operasional', email: 'staff@sewalaptop.id', password: 'staff123', role: 'STAFF', isActive: true },
   ];
 

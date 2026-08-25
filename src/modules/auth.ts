@@ -12,7 +12,8 @@ import { validateBody, getBody } from '../lib/validate';
 import type { AppEnv, Role } from '../env';
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  // Username OR email — admin prefers plain username (e.g. "sewaintop")
+  email: z.string().min(3, 'Username minimal 3 karakter'),
   password: z.string().min(1, 'Password is required'),
 });
 

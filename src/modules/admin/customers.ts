@@ -16,6 +16,18 @@ const createSchema = z.object({
   idType: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   company: z.string().optional().nullable(),
+  guaranteeDoc1: z.string().optional().nullable(),
+  guaranteeDoc2: z.string().optional().nullable(),
+  homeAddress: z.string().optional().nullable(),
+  deliveryAddress: z.string().optional().nullable(),
+  officeAddress: z.string().optional().nullable(),
+  familyContact: z.string().optional().nullable(),
+  familyContactRelation: z.string().optional().nullable(),
+  familyContactPhone: z.string().optional().nullable(),
+  instagram: z.string().optional().nullable(),
+  linkedin: z.string().optional().nullable(),
+  isDomisiliMatch: z.boolean().optional().default(false),
+  hasOwnLaptop: z.boolean().optional().default(false),
 });
 
 const updateSchema = createSchema.partial();
@@ -64,6 +76,18 @@ export function createCustomersRouter(): Hono<AppEnv> {
       idType: body.idType ?? null,
       address: body.address ?? null,
       company: body.company ?? null,
+      guaranteeDoc1: body.guaranteeDoc1 ?? null,
+      guaranteeDoc2: body.guaranteeDoc2 ?? null,
+      homeAddress: body.homeAddress ?? null,
+      deliveryAddress: body.deliveryAddress ?? null,
+      officeAddress: body.officeAddress ?? null,
+      familyContact: body.familyContact ?? null,
+      familyContactRelation: body.familyContactRelation ?? null,
+      familyContactPhone: body.familyContactPhone ?? null,
+      instagram: body.instagram ?? null,
+      linkedin: body.linkedin ?? null,
+      isDomisiliMatch: body.isDomisiliMatch ?? false,
+      hasOwnLaptop: body.hasOwnLaptop ?? false,
     });
     const [created] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
     return c.json({ data: created }, 201);

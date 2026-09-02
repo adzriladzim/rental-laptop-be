@@ -48,6 +48,19 @@ export const customers = sqliteTable('customers', {
   company: text('company'),
   isBlacklisted: integer('is_blacklisted', { mode: 'boolean' }).notNull().default(false),
   blacklistReason: text('blacklist_reason'),
+  guaranteeDoc1: text('guarantee_doc1'),
+  guaranteeDoc2: text('guarantee_doc2'),
+  homeAddress: text('home_address'),
+  deliveryAddress: text('delivery_address'),
+  officeAddress: text('office_address'),
+  familyContact: text('family_contact'),
+  familyContactRelation: text('family_contact_relation'),
+  familyContactPhone: text('family_contact_phone'),
+  instagram: text('instagram'),
+  linkedin: text('linkedin'),
+  isDomisiliMatch: integer('is_domisili_match', { mode: 'boolean' }).notNull().default(false),
+  hasOwnLaptop: integer('has_own_laptop', { mode: 'boolean' }).notNull().default(false),
+  referralCode: text('referral_code').unique(),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (t) => ({ phoneIdx: index('customers_phone_idx').on(t.phone) }));
@@ -69,8 +82,14 @@ export const bookings = sqliteTable('bookings', {
   lateFee: real('late_fee').default(0),
   damageFee: real('damage_fee').default(0),
   totalPenalty: real('total_penalty').default(0),
+  depositAmount: real('deposit_amount').default(0),
+  depositStatus: text('deposit_status', { enum: ['none', 'held', 'refunded', 'forfeited'] })
+    .notNull()
+    .default('none'),
   snapToken: text('snap_token'),
   notes: text('notes'),
+  rentalReason: text('rental_reason'),
+  referredBy: text('referred_by'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (t) => ({
@@ -164,7 +183,7 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
-  role: text('role', { enum: ['SUPER_ADMIN', 'STAFF'] }).notNull().default('STAFF'),
+  role: text('role', { enum: ['SUPER_ADMIN', 'ADMIN', 'STAFF'] }).notNull().default('STAFF'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -181,10 +200,51 @@ export const tokenBlacklist = sqliteTable('token_blacklist', {
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (t) => ({ expIdx: index('token_blacklist_exp_idx').on(t.expiresAt) }));
 
+// Reviews
+export const reviews = sqliteTable('reviews', {
+  id: text('id').primaryKey(),
+  customerId: text('customer_id').notNull().references(() => customers.id),
+  laptopId: text('laptop_id').notNull().references(() => laptops.id),
+  rating: integer('rating').notNull(),
+  comment: text('comment'),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (t) => ({
+  statusIdx: index('reviews_status_idx').on(t.status),
+  customerIdx: index('reviews_customer_idx').on(t.customerId),
+  laptopIdx: index('reviews_laptop_idx').on(t.laptopId),
+}));
+
 // System config
 export const systemConfig = sqliteTable('system_config', {
   key: text('key').primaryKey(),
   value: text('value'),
+  description: text('description'),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+// Packages — curated bundle of laptops sold as a unit.
+export const packages = sqliteTable('packages', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  laptopIds: text('laptop_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  price: real('price').notNull(),
+  durationDays: integer('duration_days').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (t) => ({ activeIdx: index('packages_active_idx').on(t.isActive) }));
+
+// Pricing tiers — duration based discounts.
+export const pricingTiers = sqliteTable('pricing_tiers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  minDays: integer('min_days').notNull(),
+  maxDays: integer('max_days'),
+  discountPercent: real('discount_percent').notNull().default(0),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 });
 
@@ -208,3 +268,9 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type TokenBlacklistEntry = typeof tokenBlacklist.$inferSelect;
 export type SystemConfig = typeof systemConfig.$inferSelect;
+export type Review = typeof reviews.$inferSelect;
+export type NewReview = typeof reviews.$inferInsert;
+export type Package = typeof packages.$inferSelect;
+export type NewPackage = typeof packages.$inferInsert;
+export type PricingTier = typeof pricingTiers.$inferSelect;
+export type NewPricingTier = typeof pricingTiers.$inferInsert;

@@ -1,12 +1,14 @@
 import { Hono, Context } from 'hono';
 import { z } from 'zod';
-import { eq, and, sql, desc, or, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, or, inArray, lt, gt } from 'drizzle-orm';
 import { createDb } from '../db';
-import { laptops, customers, bookings, leads, systemConfig } from '../db/schema';
+import { laptops, customers, bookings, leads, systemConfig, reviews, packages, pricingTiers } from '../db/schema';
 import { apiKeyMiddleware } from '../lib/middleware';
+import { publicRateLimit } from '../lib/rate-limit';
 import { validateBody, getBody, validateQuery, getQuery } from '../lib/validate';
 import { NotFoundError, ConflictError, ValidationError, BlacklistedError } from '../lib/errors';
-import { daysBetween, calcTotal, unavailableLaptopIds, overlapCounts, generateBookingNumber } from '../lib/booking';
+import { daysBetween, calcTotal, unavailableLaptopIds, overlapCounts, generateBookingNumber, generateReferralCode, ACTIVE_BOOKING_STATUSES } from '../lib/booking';
+import { createSnapToken } from '../lib/payment';
 import type { AppEnv } from '../env';
 
 async function getConfigValue(db: ReturnType<typeof createDb>, key: string, fallback: string) {
@@ -24,11 +26,23 @@ const availabilityQuery = z.object({
 const bookingBody = z.object({
   customerName: z.string().min(1),
   customerPhone: z.string().min(5),
-  customerEmail: z.string().email().optional().or(z.literal('')),
   laptopSlug: z.string().min(1),
   startDate: z.string().min(1),
   endDate: z.string().min(1),
   notes: z.string().optional(),
+  guaranteeDoc1: z.string().optional().nullable(),
+  guaranteeDoc2: z.string().optional().nullable(),
+  homeAddress: z.string().optional().nullable(),
+  deliveryAddress: z.string().optional().nullable(),
+  officeAddress: z.string().optional().nullable(),
+  familyContactRelation: z.string().optional().nullable(),
+  familyContactPhone: z.string().optional().nullable(),
+  instagram: z.string().optional().nullable(),
+  linkedin: z.string().optional().nullable(),
+  isDomisiliMatch: z.coerce.boolean().optional().default(false),
+  hasOwnLaptop: z.coerce.boolean().optional().default(false),
+  rentalReason: z.string().optional().nullable(),
+  referredBy: z.string().optional().nullable(),
 });
 
 // Normalize a phone number into comparable digit variants.
@@ -65,15 +79,22 @@ const laptopQuery = z.object({
   search: z.string().optional(),
 });
 
+const bookedDatesQuery = z.object({
+  start: z.string().min(1),
+  end: z.string().min(1),
+});
+
 export function createPublicRouter(): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
 
   router.use('*', apiKeyMiddleware());
+  // In-memory fixed-window rate limiting on public routes (per IP).
+  router.use('*', publicRateLimit());
 
   // GET /public/settings
   router.get('/settings', async (c) => {
     const db = createDb(c.env.DB);
-    const [name, phone, email, address, bankName, bankAccountNumber, bankAccountHolder] =
+    const [name, phone, email, address, bankName, bankAccountNumber, bankAccountHolder, depositAmountStr] =
       await Promise.all([
         getConfigValue(db, 'business_name', c.env.BUSINESS_NAME),
         getConfigValue(db, 'business_phone', c.env.BUSINESS_PHONE),
@@ -82,6 +103,7 @@ export function createPublicRouter(): Hono<AppEnv> {
         getConfigValue(db, 'bank_name', ''),
         getConfigValue(db, 'bank_account_number', ''),
         getConfigValue(db, 'bank_account_holder', ''),
+        getConfigValue(db, 'deposit_amount', '0'),
       ]);
     return c.json({
       data: {
@@ -91,6 +113,7 @@ export function createPublicRouter(): Hono<AppEnv> {
         address,
         currency: 'IDR',
         timezone: 'Asia/Jakarta',
+        depositAmount: Number(depositAmountStr) || 0,
         bank: {
           name: bankName,
           accountNumber: bankAccountNumber,
@@ -143,6 +166,50 @@ export function createPublicRouter(): Hono<AppEnv> {
     return c.json({ data: rows[0] });
   });
 
+  // GET /public/laptops/:slug/booked-dates?start=YYYY-MM-DD&end=YYYY-MM-DD
+  // Returns every date (ISO YYYY-MM-DD) in [start, end) covered by an active
+  // booking of this laptop, so the booking calendar can grey them out up front.
+  router.get('/laptops/:slug/booked-dates', validateQuery(bookedDatesQuery), async (c) => {
+    const slug = c.req.param('slug')!;
+    const { start, end } = getQuery<z.infer<typeof bookedDatesQuery>>(c);
+    if (new Date(end) < new Date(start)) {
+      throw new ValidationError('end must be after start');
+    }
+    const db = createDb(c.env.DB);
+    const laptopRows = await db
+      .select({ id: laptops.id })
+      .from(laptops)
+      .where(eq(laptops.slug, slug))
+      .limit(1);
+    const laptop = laptopRows[0];
+    if (!laptop) throw new NotFoundError('Laptop');
+
+    const rows = await db
+      .select({ startDate: bookings.startDate, endDate: bookings.endDate })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.laptopId, laptop.id),
+          sql`${bookings.status} IN ${sql.raw(`('${ACTIVE_BOOKING_STATUSES.join("', '")}')`)}`,
+          lt(bookings.startDate, end),
+          gt(bookings.endDate, start),
+        ),
+      );
+
+    const dates = new Set<string>();
+    for (const r of rows) {
+      const from = r.startDate > start ? r.startDate : start;
+      const to = r.endDate < end ? r.endDate : end;
+      const cur = new Date(`${from}T00:00:00Z`);
+      const stop = new Date(`${to}T00:00:00Z`);
+      while (cur < stop) {
+        dates.add(cur.toISOString().slice(0, 10));
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+    }
+    return c.json({ data: { dates: [...dates].sort() } });
+  });
+
   // POST /public/bookings
   router.post('/bookings', validateBody(bookingBody), async (c) => {
     const body = getBody<z.infer<typeof bookingBody>>(c);
@@ -172,21 +239,66 @@ export function createPublicRouter(): Hono<AppEnv> {
     const total = calcTotal(days, laptop.dailyRate, laptop.weeklyRate, laptop.monthlyRate);
     const bookingNumber = await generateBookingNumber(db);
 
+    // Read deposit amount from system_config (set via admin panel).
+    const depositAmountStr = await getConfigValue(db, 'deposit_amount', '0');
+    const depositAmount = Number(depositAmountStr) || 0;
+
     // NOTE: D1 does not support db.transaction() (BEGIN TRANSACTION rejected).
     // Sequential operations instead — acceptable for single-outlet rental scale.
     let customer = foundCustomer;
-    if (!customer) {
+    if (customer) {
+      // Update existing customer's new fields if provided
+      const patch: Record<string, unknown> = {};
+      if (body.guaranteeDoc1 != null) patch.guaranteeDoc1 = body.guaranteeDoc1;
+      if (body.guaranteeDoc2 != null) patch.guaranteeDoc2 = body.guaranteeDoc2;
+      if (body.homeAddress != null) patch.homeAddress = body.homeAddress;
+      if (body.deliveryAddress != null) patch.deliveryAddress = body.deliveryAddress;
+      if (body.officeAddress != null) patch.officeAddress = body.officeAddress;
+      if (body.familyContactRelation != null) patch.familyContactRelation = body.familyContactRelation;
+      if (body.familyContactPhone != null) patch.familyContactPhone = body.familyContactPhone;
+      if (body.instagram != null) patch.instagram = body.instagram;
+      if (body.linkedin != null) patch.linkedin = body.linkedin;
+      if (body.isDomisiliMatch != null) patch.isDomisiliMatch = body.isDomisiliMatch;
+      if (body.hasOwnLaptop != null) patch.hasOwnLaptop = body.hasOwnLaptop;
+      if (Object.keys(patch).length) {
+        await db.update(customers).set({ ...patch, updatedAt: new Date().toISOString() }).where(eq(customers.id, customer.id));
+        customer = (await db.select().from(customers).where(eq(customers.id, customer.id)).limit(1))[0];
+      }
+    } else {
       const cid = crypto.randomUUID();
+      const referralCode = await generateReferralCode(db);
       await db.insert(customers).values({
         id: cid,
         name: body.customerName,
         phone: body.customerPhone,
-        email: body.customerEmail || null,
+        email: null,
+        guaranteeDoc1: body.guaranteeDoc1 ?? null,
+        guaranteeDoc2: body.guaranteeDoc2 ?? null,
+        homeAddress: body.homeAddress ?? null,
+        deliveryAddress: body.deliveryAddress ?? null,
+        officeAddress: body.officeAddress ?? null,
+        familyContactRelation: body.familyContactRelation ?? null,
+        familyContactPhone: body.familyContactPhone ?? null,
+        instagram: body.instagram ?? null,
+        linkedin: body.linkedin ?? null,
+        isDomisiliMatch: body.isDomisiliMatch ?? false,
+        hasOwnLaptop: body.hasOwnLaptop ?? false,
+        referralCode,
       });
       customer = (await db.select().from(customers).where(eq(customers.id, cid)).limit(1))[0];
     }
+
+    // Create snap token — real Midtrans if server key set, mock otherwise.
+    const { token: snapToken } = await createSnapToken({
+      orderId: bookingNumber,
+      amount: total + depositAmount,
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+      env: c.env.ENVIRONMENT,
+      midtransServerKey: c.env.MIDTRANS_SERVER_KEY,
+    });
+
     const bid = crypto.randomUUID();
-    const snapToken = `mock-snap-${bookingNumber}`;
     await db.insert(bookings).values({
       id: bid,
       bookingNumber,
@@ -197,8 +309,12 @@ export function createPublicRouter(): Hono<AppEnv> {
       status: 'Pending',
       paymentStatus: 'unpaid',
       totalAmount: total,
+      depositAmount,
+      depositStatus: depositAmount > 0 ? 'none' : 'none',
       snapToken,
       notes: body.notes || null,
+      rentalReason: body.rentalReason ?? null,
+      referredBy: body.referredBy ?? null,
     });
     const booking = (await db.select().from(bookings).where(eq(bookings.id, bid)).limit(1))[0];
     const result = { booking, customer };
@@ -212,6 +328,8 @@ export function createPublicRouter(): Hono<AppEnv> {
           status: result.booking.status,
           paymentStatus: result.booking.paymentStatus,
           totalAmount: result.booking.totalAmount,
+          depositAmount: result.booking.depositAmount ?? 0,
+          depositStatus: result.booking.depositStatus,
           snapToken: result.booking.snapToken,
           startDate: result.booking.startDate,
           endDate: result.booking.endDate,
@@ -244,6 +362,8 @@ export function createPublicRouter(): Hono<AppEnv> {
         bookingNumber: bookings.bookingNumber,
         status: bookings.status,
         paymentStatus: bookings.paymentStatus,
+        depositAmount: bookings.depositAmount,
+        depositStatus: bookings.depositStatus,
         startDate: bookings.startDate,
         endDate: bookings.endDate,
         totalAmount: bookings.totalAmount,
@@ -261,6 +381,8 @@ export function createPublicRouter(): Hono<AppEnv> {
         bookingNumber: r.bookingNumber,
         status: r.status,
         paymentStatus: r.paymentStatus,
+        depositAmount: r.depositAmount ?? 0,
+        depositStatus: r.depositStatus,
         startDate: r.startDate,
         endDate: r.endDate,
         totalAmount: r.totalAmount,
@@ -275,22 +397,29 @@ export function createPublicRouter(): Hono<AppEnv> {
     const bookingNumber = c.req.param('bookingNumber');
     const db = createDb(c.env.DB);
     const rows = await db
-      .select({ b: bookings, laptopName: laptops.name, laptopSlug: laptops.slug })
+      .select({ b: bookings, laptopName: laptops.name, laptopSlug: laptops.slug, customerName: customers.name, customerPhone: customers.phone })
       .from(bookings)
       .leftJoin(laptops, eq(bookings.laptopId, laptops.id))
+      .leftJoin(customers, eq(bookings.customerId, customers.id))
       .where(eq(bookings.bookingNumber, bookingNumber))
       .limit(1);
     if (!rows[0]) throw new NotFoundError('Booking');
-    const { b, laptopName, laptopSlug } = rows[0];
+    const { b, laptopName, laptopSlug, customerName, customerPhone } = rows[0];
     return c.json({
       data: {
         bookingNumber: b.bookingNumber,
         status: b.status,
         paymentStatus: b.paymentStatus,
         totalAmount: b.totalAmount,
+        depositAmount: b.depositAmount ?? 0,
+        depositStatus: b.depositStatus,
         startDate: b.startDate,
         endDate: b.endDate,
         actualReturnDate: b.actualReturnDate,
+        lateFee: b.lateFee ?? 0,
+        totalPenalty: b.totalPenalty ?? 0,
+        customerName: customerName ?? null,
+        customerPhone: customerPhone ?? null,
         laptop: laptopName ? { name: laptopName, slug: laptopSlug } : null,
       },
     });
@@ -318,6 +447,77 @@ export function createPublicRouter(): Hono<AppEnv> {
       })
       .returning();
     return c.json({ data: lead }, 201);
+  });
+
+  // GET /public/referral/:code
+  // Validate a referral code and return the referrer's public info.
+  router.get('/referral/:code', async (c) => {
+    const code = c.req.param('code');
+    const db = createDb(c.env.DB);
+    const rows = await db
+      .select({ id: customers.id, name: customers.name, referralCode: customers.referralCode })
+      .from(customers)
+      .where(eq(customers.referralCode, code))
+      .limit(1);
+    if (!rows[0]) throw new NotFoundError('Referral code');
+    return c.json({
+      data: {
+        valid: true,
+        code: rows[0].referralCode,
+        referrerName: rows[0].name,
+      },
+    });
+  });
+
+  // GET /public/packages — active packages only, for the landing page.
+  router.get('/packages', async (c) => {
+    const db = createDb(c.env.DB);
+    const rows = await db
+      .select()
+      .from(packages)
+      .where(eq(packages.isActive, true))
+      .orderBy(desc(packages.createdAt));
+    return c.json({ data: rows });
+  });
+
+  // GET /public/pricing-tiers — all tiers ordered by min_days.
+  router.get('/pricing-tiers', async (c) => {
+    const db = createDb(c.env.DB);
+    const rows = await db
+      .select()
+      .from(pricingTiers)
+      .orderBy(asc(pricingTiers.minDays));
+    return c.json({ data: rows });
+  });
+
+  // GET /public/reviews — approved reviews only, for the landing page testimoni.
+  router.get('/reviews', async (c) => {
+    const db = createDb(c.env.DB);
+    const rows = await db
+      .select({
+        id: reviews.id,
+        rating: reviews.rating,
+        comment: reviews.comment,
+        createdAt: reviews.createdAt,
+        customerName: customers.name,
+        laptopName: laptops.name,
+      })
+      .from(reviews)
+      .innerJoin(customers, eq(reviews.customerId, customers.id))
+      .innerJoin(laptops, eq(reviews.laptopId, laptops.id))
+      .where(eq(reviews.status, 'approved'))
+      .orderBy(desc(reviews.createdAt))
+      .limit(100);
+    return c.json({
+      data: rows.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        comment: r.comment ?? '',
+        createdAt: r.createdAt,
+        customerName: r.customerName,
+        laptopName: r.laptopName,
+      })),
+    });
   });
 
   return router;

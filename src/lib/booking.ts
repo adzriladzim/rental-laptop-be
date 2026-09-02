@@ -1,6 +1,6 @@
 import { sql, and } from 'drizzle-orm';
 import { createDb } from '../db';
-import { bookings, maintenanceRecords, laptops } from '../db/schema';
+import { bookings, maintenanceRecords, laptops, customers } from '../db/schema';
 
 export const ACTIVE_BOOKING_STATUSES = ['Pending', 'pending_payment', 'Confirmed', 'Active'];
 
@@ -108,4 +108,24 @@ export async function generateBookingNumber(db: ReturnType<typeof createDb>): Pr
     .from(bookings)
     .where(sql`${bookings.bookingNumber} LIKE ${`LPR-${year}-%`}`);
   return `LPR-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+}
+
+const REF_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+// Generate a referral code `REF-{6 random chars}`. Collision-safe against existing codes.
+export async function generateReferralCode(db: ReturnType<typeof createDb>): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let code = 'REF-';
+    for (let i = 0; i < 6; i++) {
+      code += REF_CODE_CHARS[Math.floor(Math.random() * REF_CODE_CHARS.length)];
+    }
+    const existing = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(sql`${customers.referralCode} = ${code}`)
+      .limit(1);
+    if (!existing[0]) return code;
+  }
+  // 10 collisions is astronomically unlikely; fall back to "time + suffix".
+  return `REF-${Date.now().toString(36).toUpperCase()}`;
 }

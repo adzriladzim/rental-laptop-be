@@ -56,7 +56,7 @@ export function createAuthRouter(): Hono<AppEnv> {
     setCookie(c, 'token', token, {
       httpOnly: true,
       secure: isProd(c),
-      sameSite: 'None',
+      sameSite: isProd(c) ? 'None' : 'Lax',
       maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
@@ -102,7 +102,7 @@ export function createAuthRouter(): Hono<AppEnv> {
     setCookie(c, 'token', '', {
       httpOnly: true,
       secure: isProd(c),
-      sameSite: 'None',
+      sameSite: isProd(c) ? 'None' : 'Lax',
       maxAge: 0,
       path: '/',
     });

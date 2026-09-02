@@ -9,6 +9,12 @@ import { createPaymentsRouter } from './payments';
 import { createMaintenanceRouter } from './maintenance';
 import { createDashboardRouter } from './dashboard';
 import { createChecklistsRouter } from './checklists';
+import { createReportsRouter } from './reports';
+import { createReviewsRouter } from './reviews';
+import { createPackagesRouter } from './packages';
+import { createPricingRouter } from './pricing';
+import { createSettingsRouter } from './settings';
+import { createUsersRouter } from './users';
 import type { AppEnv } from '../../env';
 
 export function createAdminRouter(): Hono<AppEnv> {
@@ -26,6 +32,12 @@ export function createAdminRouter(): Hono<AppEnv> {
   router.route('/maintenance', createMaintenanceRouter());
   router.route('/dashboard', createDashboardRouter());
   router.route('/checklists', createChecklistsRouter());
+  router.route('/reports', createReportsRouter());
+  router.route('/reviews', createReviewsRouter());
+  router.route('/packages', createPackagesRouter());
+  router.route('/pricing-tiers', createPricingRouter());
+  router.route('/settings', createSettingsRouter());
+  router.route('/users', createUsersRouter());
 
   return router;
 }

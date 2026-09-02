@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   ENVIRONMENT: string;
+  SENTRY_DSN: string;
   JWT_SECRET: string;
   PUBLIC_API_KEY: string;
   PUBLIC_API_ENABLED: string;
@@ -10,9 +11,11 @@ export interface Env {
   BUSINESS_ADDRESS: string;
   PAYMENT_WEBHOOK_SECRET: string;
   ALLOWED_PUBLIC_API_ORIGINS: string;
+  MIDTRANS_SERVER_KEY: string;
+  MIDTRANS_CLIENT_KEY: string;
 }
 
-export type Role = 'SUPER_ADMIN' | 'STAFF';
+export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'STAFF';
 
 export interface AuthUser {
   userId: string;

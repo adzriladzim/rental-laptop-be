@@ -10,6 +10,10 @@ binding = "DB"
 database_name = "laptop-rental-db"
 database_id = "6c61c659-8529-4f10-9b5e-ae64aa0a38b0"
 
+# Scheduled cron triggers (Cloudflare Workers). 0 1 * * * = 01:00 UTC = 08:00 WIB.
+[triggers]
+crons = ["0 1 * * *"]
+
 # Environment Variables (non-secret). Secrets via: npx wrangler secret put <NAME>
 [vars]
 ENVIRONMENT = "production"
@@ -20,3 +24,6 @@ BUSINESS_PHONE = "+6288292123852"
 BUSINESS_EMAIL = "halo@sewalaptop.id"
 BUSINESS_ADDRESS = "Jakarta, Indonesia"
 ALLOWED_PUBLIC_API_ORIGINS = "http://localhost:5173,http://localhost:3000,https://rental-laptop-lp.vercel.app,https://rental-laptop-by.vercel.app"
+MIDTRANS_SERVER_KEY = ""
+MIDTRANS_CLIENT_KEY = ""
+SENTRY_DSN = "https://o0.ingest.sentry.io/0"

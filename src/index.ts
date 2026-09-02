@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import * as Sentry from '@sentry/cloudflare';
 import { createAuthRouter } from './modules/auth';
 import { createPublicRouter } from './modules/public';
 import { createAdminRouter } from './modules/admin';
 import { createWebhookRouter } from './modules/webhooks';
 import { buildErrorResponse } from './lib/errors';
-import type { AppEnv } from './env';
+import { runCron } from './lib/cron';
+import { adminRateLimit } from './lib/rate-limit';
+import type { AppEnv, Env } from './env';
 
 const app = new Hono<AppEnv>();
 
@@ -38,6 +41,33 @@ app.use('*', async (c, next) => {
   }
 });
 
+// Cache-Control per route pattern.
+app.use('*', async (c, next) => {
+  const path = c.req.path;
+  const method = c.req.method.toUpperCase();
+
+  if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+    c.header('Cache-Control', 'no-store');
+    await next();
+    return;
+  }
+  if (method === 'GET') {
+    if (/^\/public\/laptops(\/.*)?$/.test(path) && !path.includes('/booked-dates')) {
+      c.header('Cache-Control', 'public, max-age=300');
+    } else if (path === '/public/settings') {
+      c.header('Cache-Control', 'public, max-age=3600');
+    } else if (path === '/public/availability') {
+      c.header('Cache-Control', 'public, max-age=60');
+    } else if (/^\/public\/bookings\//.test(path)) {
+      c.header('Cache-Control', 'private, no-cache');
+    }
+  }
+  await next();
+});
+
+// Admin rate limiting: login 5/min, write operations 30/min (per IP).
+app.use('*', adminRateLimit());
+
 // Centralized error handling.
 app.onError((err, c) => {
   console.error('Request error:', err);
@@ -54,4 +84,23 @@ app.route('/public', createPublicRouter());
 app.route('/', createAdminRouter());
 app.route('/webhooks', createWebhookRouter());
 
-export default { fetch: app.fetch };
+const worker = {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  // Daily cron (01:00 UTC = 08:00 WIB): auto status transitions + late fees.
+  scheduled: async (_event: ScheduledController, env: Env, _ctx: ExecutionContext) => {
+    try {
+      await runCron(env);
+    } catch (err) {
+      console.error('[cron] scheduled handler failed:', err);
+    }
+  },
+};
+
+export default Sentry.withSentry(
+  (env: Env) => ({
+    dsn: env.SENTRY_DSN,
+    enabled: env.ENVIRONMENT === 'production',
+    tracesSampleRate: 1.0,
+  }),
+  worker,
+);

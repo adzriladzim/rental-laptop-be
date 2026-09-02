@@ -21,6 +21,8 @@ interface SeedData {
   customers: Array<Record<string, unknown>>;
   leads: Array<Record<string, unknown>>;
   bookings: Array<Record<string, unknown>>;
+  reviews: Array<Record<string, unknown>>;
+  packages: Array<Record<string, unknown>>;
 }
 
 function buildData(): SeedData {
@@ -43,6 +45,9 @@ function buildData(): SeedData {
     { brand: 'Lenovo', model: 'ThinkPad T480', category: 'Developer', name: 'Lenovo ThinkPad T480', slug: 'lenovo-thinkpad-t480', dailyRate: R.daily, weeklyRate: R.weekly, monthlyRate: R.monthly, specs: { processor: 'Intel Core i7-8550U', ram: '16GB', storage: '1TB SSD', battery: 'Berjam-jam' }, partnerId: 'ptr-003', description: 'Kencang, stabil, nyaman. Cocok untuk kerja, editing, kuliah, multitasking berat.' },
     { brand: 'Dell', model: 'Vostro 3400', category: 'Student', name: 'Dell Vostro 3400', slug: 'dell-vostro-3400', dailyRate: R.daily, weeklyRate: R.weekly, monthlyRate: R.monthly, specs: { processor: 'Intel Core i5-1135G7', ram: '8GB', storage: '256GB SSD' }, partnerId: 'ptr-003', description: 'Performa cepat, desain elegan. Cocok untuk kerja, desain ringan, meeting.' },
     { brand: 'Dell', model: 'Latitude 7400', category: 'Business', name: 'Dell Latitude 7400', slug: 'dell-latitude-7400', dailyRate: R.daily, weeklyRate: R.weekly, monthlyRate: R.monthly, specs: { processor: 'Intel Core i5 Gen 8', ram: '16GB', storage: '512GB SSD' }, partnerId: null, description: 'Laptop kelas bisnis, performa tinggi. Cocok untuk profesional.' },
+    { brand: 'Apple', model: 'MacBook Air M1', category: 'Student', name: 'MacBook Air M1 (2020)', slug: 'macbook-air-m1', dailyRate: 250000, weeklyRate: 1250000, monthlyRate: 3500000, specs: { processor: 'Apple M1 (8-core CPU, 7-core GPU)', ram: '8GB Unified', storage: '256GB SSD', screen: '13.3" Retina 2560×1600', battery: 'Hingga 18 jam', weight: '1.29 kg' }, partnerId: null, description: 'Ringan, baterai awet, performa M1 untuk kuliah, browsing, coding ringan. Layar Retina tajam.' },
+    { brand: 'Apple', model: 'MacBook Pro 14" M2 Pro', category: 'Designer', name: 'MacBook Pro 14" M2 Pro (2023)', slug: 'macbook-pro-14-m2-pro', dailyRate: 350000, weeklyRate: 1750000, monthlyRate: 5000000, specs: { processor: 'Apple M2 Pro (10-core CPU, 16-core GPU)', ram: '16GB Unified', storage: '512GB SSD', screen: '14.2" Liquid Retina XDR 3024×1964', battery: 'Hingga 17 jam', weight: '1.6 kg' }, partnerId: null, description: 'Layar Liquid Retina XDR, performa M2 Pro untuk desain, video editing, dan development berat.' },
+    { brand: 'Apple', model: 'MacBook Pro 16" M3 Max', category: 'Developer', name: 'MacBook Pro 16" M3 Max (2023)', slug: 'macbook-pro-16-m3-max', dailyRate: 500000, weeklyRate: 2500000, monthlyRate: 7000000, specs: { processor: 'Apple M3 Max (14-core CPU, 30-core GPU)', ram: '36GB Unified', storage: '1TB SSD', screen: '16.2" Liquid Retina XDR 3456×2234', battery: 'Hingga 22 jam', weight: '2.14 kg' }, partnerId: null, description: 'Performa M3 Max untuk video editing 4K/8K, 3D rendering, dan development intensif. RAM 36GB.' },
   ];
 
   const laptops = laptopSeed.map((l, i) => ({
@@ -84,7 +89,18 @@ function buildData(): SeedData {
     { id: 'bkg-002', bookingNumber: 'LPR-2026-0002', customerId: 'cus-002', laptopId: 'lpt-003', startDate: '2026-09-10', endDate: '2026-09-17', actualReturnDate: null, status: 'Pending', paymentStatus: 'unpaid', totalAmount: 875000, lateFee: 0, damageFee: 0, totalPenalty: 0, notes: null, snapToken: 'mock-snap-LPR-2026-0002' },
   ];
 
-  return { partners, laptops, users, customers, leads, bookings };
+  const reviews = [
+    { id: 'rev-001', customerId: 'cus-001', laptopId: 'lpt-001', rating: 5, comment: 'Laptopnya mulus, baterai awet, cocok banget buat kerja remote seminggu. Proses sewa cepat dan CS-nya responsif.', status: 'approved' },
+    { id: 'rev-002', customerId: 'cus-002', laptopId: 'lpt-003', rating: 4, comment: 'MacBook-nya ngebut buat desain, layar Retina tajam. Pengiriman tepat waktu, cuma minus unit agak sedikit baret di bodi.', status: 'approved' },
+    { id: 'rev-003', customerId: 'cus-003', laptopId: 'lpt-010', rating: 5, comment: 'MacBook Air M1 ringan dibawa ke mana-mana, baterai seharian. Proses pengembalian gampang, dana jaminan cair cepat.', status: 'approved' },
+  ];
+
+  const packages = [
+    { id: 'pkg-001', name: 'Paket Ujian BUMN', description: 'Paket laptop siap ujian online BUMN, sudah terpasang browser ujian dan stabil untuk tes CAT.', laptopIds: ['lpt-001', 'lpt-002'], price: 2000000, durationDays: 7, isActive: true },
+    { id: 'pkg-002', name: 'Paket Kerja Remote', description: 'Paket laptop performa tinggi untuk kerja remote, edge computing ringan, dan video conference sepanjang hari.', laptopIds: ['lpt-010', 'lpt-004'], price: 3000000, durationDays: 14, isActive: true },
+  ];
+
+  return { partners, laptops, users, customers, leads, bookings, reviews, packages };
 }
 
 export async function buildSeedSql(): Promise<string> {
@@ -92,15 +108,19 @@ export async function buildSeedSql(): Promise<string> {
   const ts = now();
   const lines: string[] = [];
 
-  const insert = (table: string, cols: string[], rows: Array<Record<string, unknown>>, valueFor: (k: string, v: unknown) => string) => {
+  const insert = (table: string, cols: string[], rows: Array<Record<string, unknown>>, valueFor: (k: string, v: unknown, ts: string, row: Record<string, unknown>) => string) => {
     for (const row of rows) {
-      const vals = cols.map((col) => valueFor(col, row[col]));
+      const vals = cols.map((col) => valueFor(col, row[col], ts, row));
       lines.push(`INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${vals.join(', ')});`);
     }
   };
 
   insert('partners', ['id', 'name', 'phone', 'email', 'is_active', 'created_at', 'updated_at'],
-    data.partners as any, (k, v) => (k.endsWith('_at') ? q(ts) : q(v)));
+    data.partners as any, (k, v, _ts, row) => {
+      if (k.endsWith('_at')) return q(ts);
+      if (k === 'is_active') return q(row['isActive'] ?? true);
+      return q(v);
+    });
 
   // Laptops need password-free hashing path; specs as JSON.
   for (const l of data.laptops) {
@@ -116,14 +136,43 @@ export async function buildSeedSql(): Promise<string> {
     );
   }
 
+  // camelCase → snake_case lookup helper (seed objects use camelCase, SQL uses snake_case)
+  const camelToSnake: Record<string, string> = {
+    id_number: 'idNumber', id_type: 'idType', is_blacklisted: 'isBlacklisted',
+    preferred_start: 'preferredStart', preferred_end: 'preferredEnd',
+    laptop_interest: 'laptopInterest', customer_id: 'customerId', laptop_id: 'laptopId',
+    booking_number: 'bookingNumber', start_date: 'startDate', end_date: 'endDate',
+    actual_return_date: 'actualReturnDate', payment_status: 'paymentStatus',
+    total_amount: 'totalAmount', late_fee: 'lateFee', damage_fee: 'damageFee',
+    total_penalty: 'totalPenalty', snap_token: 'snapToken',
+    customer_id: 'customerId', laptop_id: 'laptopId',
+    laptop_ids: 'laptopIds', duration_days: 'durationDays', is_active: 'isActive',
+  };
+  const rowVal = (col: string, row: Record<string, unknown>, ts: string) => {
+    const v = row[camelToSnake[col] ?? col];
+    return col.endsWith('_at') ? q(ts) : col === 'is_blacklisted' ? q(v) : q(v);
+  };
+
   insert('customers', ['id', 'name', 'phone', 'email', 'id_number', 'id_type', 'address', 'company', 'is_blacklisted', 'created_at', 'updated_at'],
-    data.customers as any, (k, v) => (k.endsWith('_at') ? q(ts) : k === 'is_blacklisted' ? q(v) : q(v)));
+    data.customers as any, (k, v) => (k.endsWith('_at') ? q(ts) : k === 'is_blacklisted' ? q(v ?? false) : q(v)));
 
   insert('leads', ['id', 'name', 'phone', 'email', 'message', 'preferred_start', 'preferred_end', 'laptop_interest', 'budget', 'purpose', 'source', 'status', 'created_at', 'updated_at'],
     data.leads as any, (k, v) => (k.endsWith('_at') ? q(ts) : q(v)));
 
   insert('bookings', ['id', 'booking_number', 'customer_id', 'laptop_id', 'start_date', 'end_date', 'actual_return_date', 'status', 'payment_status', 'total_amount', 'late_fee', 'damage_fee', 'total_penalty', 'snap_token', 'notes', 'created_at', 'updated_at'],
-    data.bookings as any, (k, v) => (k.endsWith('_at') ? q(ts) : q(v)));
+    data.bookings as any, (k, _v, _ts, row) => rowVal(k, row, ts));
+
+  // Reviews — plain text fields, camelCase→snake via rowVal.
+  insert('reviews', ['id', 'customer_id', 'laptop_id', 'rating', 'comment', 'status', 'created_at', 'updated_at'],
+    data.reviews as any, (k, _v, _ts, row) => rowVal(k, row, ts));
+
+  // Packages — laptop_ids JSON, is_active boolean→int, rest via rowVal.
+  insert('packages', ['id', 'name', 'description', 'laptop_ids', 'price', 'duration_days', 'is_active', 'created_at', 'updated_at'],
+    data.packages as any, (k, _v, _ts, row) => {
+      if (k === 'laptop_ids') return j(row['laptopIds']);
+      if (k === 'is_active') return q(row['isActive'] ?? true);
+      return rowVal(k, row, ts);
+    });
 
   return lines.join('\n') + '\n';
 }
@@ -141,6 +190,8 @@ export async function seedDatabase(db: Database): Promise<void> {
   await db.insert(customersTable).values(data.customers as any).onConflictDoNothing();
   await db.insert(leadsTable).values(data.leads as any).onConflictDoNothing();
   await db.insert(bookingsTable).values(data.bookings as any).onConflictDoNothing();
+  await db.insert(reviewsTable).values(data.reviews as any).onConflictDoNothing();
+  await db.insert(packagesTable).values(data.packages as any).onConflictDoNothing();
 }
 
 // tsx entry: generate seed.sql for `wrangler d1 execute --file`.
@@ -157,4 +208,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 // Imported lazily to avoid pulling schema types at top in the tsx-file branch.
-import { partners, laptops, customers as customersTable, leads as leadsTable, bookings as bookingsTable, users as usersTable } from './schema';
+import { partners, laptops, customers as customersTable, leads as leadsTable, bookings as bookingsTable, users as usersTable, reviews as reviewsTable, packages as packagesTable } from './schema';

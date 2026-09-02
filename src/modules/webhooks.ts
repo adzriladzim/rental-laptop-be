@@ -80,7 +80,12 @@ export function createWebhookRouter(): Hono<AppEnv> {
           verifiedAt: now,
         });
       }
-      await db.update(bookings).set({ paymentStatus: 'paid', updatedAt: now }).where(eq(bookings.id, booking.id));
+      const bookingPatch: Record<string, unknown> = { paymentStatus: 'paid', updatedAt: now };
+      // Auto-hold deposit when payment is confirmed and deposit amount exists.
+      if ((booking.depositAmount ?? 0) > 0 && booking.depositStatus === 'none') {
+        bookingPatch.depositStatus = 'held';
+      }
+      await db.update(bookings).set(bookingPatch).where(eq(bookings.id, booking.id));
       if (booking.status === 'Pending' || booking.status === 'pending_payment') {
         await db.update(bookings).set({ status: 'Confirmed', updatedAt: now }).where(eq(bookings.id, booking.id));
       }

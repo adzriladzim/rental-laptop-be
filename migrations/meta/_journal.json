@@ -15,6 +15,48 @@
       "when": 1787672486797,
       "tag": "0001_fixed_ronan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787672486797,
+      "tag": "0002_deposit_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788192317753,
+      "tag": "0003_equal_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788216615561,
+      "tag": "0004_married_mongu",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788216615561,
+      "tag": "0005_family_contact_phone",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788250000000,
+      "tag": "0006_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788251000000,
+      "tag": "0007_referral",
+      "breakpoints": true
     }
   ]
 }

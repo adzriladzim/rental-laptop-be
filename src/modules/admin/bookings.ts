@@ -30,6 +30,8 @@ const updateSchema = z.object({
   lateFee: z.number().optional().nullable(),
   damageFee: z.number().optional().nullable(),
   totalPenalty: z.number().optional().nullable(),
+  depositAmount: z.number().optional().nullable(),
+  depositStatus: z.enum(['none', 'held', 'refunded', 'forfeited']).optional(),
   notes: z.string().optional().nullable(),
 });
 
@@ -93,7 +95,9 @@ export function createBookingsRouter(): Hono<AppEnv> {
     startDate: z.string().min(1),
     endDate: z.string().min(1),
     notes: z.string().optional().nullable(),
+    rentalReason: z.string().optional().nullable(),
     paymentStatus: z.string().optional(),
+    depositAmount: z.number().optional().nullable(),
   });
 
   router.post('/', validateBody(createSchema), async (c) => {
@@ -147,6 +151,7 @@ export function createBookingsRouter(): Hono<AppEnv> {
     const bookingNumber = await generateBookingNumber(db);
 
     const bid = crypto.randomUUID();
+    const depositAmount = body.depositAmount ?? 0;
     await db.insert(bookings).values({
       id: bid,
       bookingNumber,
@@ -157,7 +162,10 @@ export function createBookingsRouter(): Hono<AppEnv> {
       status: 'Confirmed',
       paymentStatus: body.paymentStatus || 'unpaid',
       totalAmount: total,
+      depositAmount,
+      depositStatus: depositAmount > 0 ? 'none' : 'none',
       notes: body.notes ?? null,
+      rentalReason: body.rentalReason ?? null,
     });
     const booking = (await db.select().from(bookings).where(eq(bookings.id, bid)).limit(1))[0];
     const counts = await overlapCounts(db, body.startDate, body.endDate);
@@ -197,9 +205,17 @@ export function createBookingsRouter(): Hono<AppEnv> {
       const patch: Record<string, unknown> = { status: target, updatedAt: new Date().toISOString() };
       if (action === 'complete') {
         patch.actualReturnDate = new Date().toISOString();
+        // Auto-refund deposit on completion if still held.
+        if (booking.depositStatus === 'held') {
+          patch.depositStatus = 'refunded';
+        }
         if (booking.laptopId) await recomputeLaptopStatus(db, booking.laptopId);
       }
       if (action === 'cancel') {
+        // Auto-refund deposit on cancellation if still held.
+        if (booking.depositStatus === 'held') {
+          patch.depositStatus = 'refunded';
+        }
         if (booking.laptopId) await recomputeLaptopStatus(db, booking.laptopId);
       }
       if (action === 'start') {
@@ -215,6 +231,25 @@ export function createBookingsRouter(): Hono<AppEnv> {
   router.post('/:id/start', advance('start'));
   router.post('/:id/complete', advance('complete'));
   router.post('/:id/cancel', advance('cancel'));
+
+  // POST /bookings/:id/deposit — convenience endpoint to set deposit status.
+  const depositSchema = z.object({
+    status: z.enum(['held', 'refunded', 'forfeited']),
+  });
+
+  router.post('/:id/deposit', validateBody(depositSchema), async (c) => {
+    const { status } = getBody<z.infer<typeof depositSchema>>(c);
+    const id = c.req.param('id') as string;
+    const db = createDb(c.env.DB);
+    const existing = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    if (!existing[0]) throw new NotFoundError('Booking');
+    await db
+      .update(bookings)
+      .set({ depositStatus: status, updatedAt: new Date().toISOString() })
+      .where(eq(bookings.id, id));
+    const [updated] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    return c.json({ data: updated });
+  });
 
   router.delete('/:id', async (c) => {
     const id = c.req.param('id') as string;

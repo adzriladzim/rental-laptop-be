@@ -46,7 +46,14 @@ export function createPaymentsRouter(): Hono<AppEnv> {
     if (rows[0].status === 'verified') throw new ConflictError('Payment already verified');
     const now = new Date().toISOString();
     await db.update(payments).set({ status: 'verified', verifiedBy: verifiedBy ?? null, verifiedAt: now, updatedAt: now }).where(eq(payments.id, id));
-    await db.update(bookings).set({ paymentStatus: 'paid', updatedAt: now }).where(eq(bookings.id, rows[0].bookingId));
+    const bookingPatch: Record<string, unknown> = { paymentStatus: 'paid', updatedAt: now };
+    // Auto-hold deposit on manual payment verification if deposit exists.
+    const bookingRow = await db.select({ depositAmount: bookings.depositAmount, depositStatus: bookings.depositStatus })
+      .from(bookings).where(eq(bookings.id, rows[0].bookingId)).limit(1);
+    if (bookingRow[0] && (bookingRow[0].depositAmount ?? 0) > 0 && bookingRow[0].depositStatus === 'none') {
+      bookingPatch.depositStatus = 'held';
+    }
+    await db.update(bookings).set(bookingPatch).where(eq(bookings.id, rows[0].bookingId));
     const [updated] = await db.select().from(payments).where(eq(payments.id, id)).limit(1);
     return c.json({ data: updated });
   });

@@ -30,8 +30,8 @@ const bookingBody = z.object({
   startDate: z.string().min(1),
   endDate: z.string().min(1),
   notes: z.string().optional(),
-  guaranteeDoc1: z.string().optional().nullable(),
-  guaranteeDoc2: z.string().optional().nullable(),
+  guaranteeDoc1: z.string().min(1, 'Document 1 is required'),
+  guaranteeDoc2: z.string().min(1, 'Document 2 is required'),
   homeAddress: z.string().optional().nullable(),
   deliveryAddress: z.string().optional().nullable(),
   officeAddress: z.string().optional().nullable(),
@@ -43,6 +43,15 @@ const bookingBody = z.object({
   hasOwnLaptop: z.coerce.boolean().optional().default(false),
   rentalReason: z.string().optional().nullable(),
   referredBy: z.string().optional().nullable(),
+}).refine((data) => data.guaranteeDoc1 !== data.guaranteeDoc2, {
+  message: 'Guarantee documents must be different',
+  path: ['guaranteeDoc2'],
+}).refine((data) => new Date(data.endDate) >= new Date(data.startDate), {
+  message: 'End date must be on or after start date',
+  path: ['endDate'],
+}).refine((data) => new Date(data.startDate) >= new Date(new Date().toISOString().slice(0, 10)), {
+  message: 'Start date cannot be in the past',
+  path: ['startDate'],
 });
 
 // Normalize a phone number into comparable digit variants.

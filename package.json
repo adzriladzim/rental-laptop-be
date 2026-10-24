@@ -8,6 +8,8 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:push": "wrangler d1 migrations apply laptop-rental-db --local",
     "db:seed": "tsx src/db/seed.ts && wrangler d1 execute laptop-rental-db --local --file=./seed.sql",
@@ -25,6 +27,7 @@
     "drizzle-kit": "^0.30.0",
     "tsx": "^4.21.0",
     "typescript": "^5.8.0",
+    "vitest": "^3.2.7",
     "wrangler": "^4.68.0"
   }
 }

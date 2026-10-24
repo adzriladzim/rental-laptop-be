@@ -10,7 +10,7 @@ import { runCron } from './lib/cron';
 import { adminRateLimit } from './lib/rate-limit';
 import type { AppEnv, Env } from './env';
 
-const app = new Hono<AppEnv>();
+export const app = new Hono<AppEnv>();
 
 // CORS — restrict to configured origins, allow credentials for cookie auth.
 app.use(
@@ -79,10 +79,13 @@ app.onError((err, c) => {
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Route modules.
+// NOTE: /webhooks must be registered BEFORE the admin router (mounted at "/").
+// The admin router applies authMiddleware on '*' which would otherwise shadow
+// /webhooks (registered later) and reject payment notifications with 401.
 app.route('/auth', createAuthRouter());
 app.route('/public', createPublicRouter());
-app.route('/', createAdminRouter());
 app.route('/webhooks', createWebhookRouter());
+app.route('/', createAdminRouter());
 
 const worker = {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),

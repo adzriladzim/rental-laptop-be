@@ -55,7 +55,7 @@ export async function seedFixtures(ctx: TestContext): Promise<void> {
   d1.exec(`INSERT INTO laptops (id,name,brand,model,category,daily_rate,weekly_rate,monthly_rate,status,slug,quantity,created_at,updated_at)
     VALUES ('lpt-001','Lenovo ThinkPad X280','Lenovo','ThinkPad X280','Business',175000,875000,2400000,'Available','lenovo-thinkpad-x280',1,'${now}','${now}')`)
   d1.exec(`INSERT INTO laptops (id,name,brand,model,category,daily_rate,weekly_rate,monthly_rate,status,slug,quantity,created_at,updated_at)
-    VALUES ('lpt-002','MacBook Pro 14 M2 Pro','Apple','M2 Pro','Designer',350000,1750000,5000000,'Available','macbook-pro-14-m2-pro',1,'${now}','${now}')`)
+    VALUES ('lpt-002','MacBook Pro 2019','Apple','MacBook Pro 2019','Designer',175000,875000,2400000,'Available','macbook-pro-2019',1,'${now}','${now}')`)
   d1.exec(`INSERT INTO customers (id,name,phone,is_blacklisted,created_at,updated_at)
     VALUES ('cus-001','Budi Santoso','+62821111111',0,'${now}','${now}')`)
 }

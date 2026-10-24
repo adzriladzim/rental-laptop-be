@@ -45,11 +45,11 @@ describe('Public API', () => {
   })
 
   it('GET /public/laptops/:slug returns a single laptop', async () => {
-    const { res, body } = await json(ctx, 'GET', '/public/laptops/macbook-pro-14-m2-pro', {
+    const { res, body } = await json(ctx, 'GET', '/public/laptops/macbook-pro-2019', {
       headers: KEY,
     })
     expect(res.status).toBe(200)
-    expect(body.data.slug).toBe('macbook-pro-14-m2-pro')
+    expect(body.data.slug).toBe('macbook-pro-2019')
     expect(body.data.category).toBe('Designer')
   })
 
